@@ -202,6 +202,8 @@ class BaseNetwork:
                     self.bn_cache[f'Z_hat{i}'] = Z_hat
                     self.bn_cache[f'batch_var{i}'] = batch_var
                     self.bn_cache[f'epsilon{i}'] = epsilon
+                    self.bn_cache[f'gamma{i}'] = gamma
+                    self.bn_cache[f'beta{i}'] = beta
                 else:
                     # if not training, do not update the running ones,
                     # just use them as they are - for unsees, individual samples
@@ -335,26 +337,6 @@ class BaseNetwork:
 
         # loop backwards from the last hidden layer to the first
         for i in range(self.num_hidden_layers, 0, -1):
-            # dZ for the current hidden layer: dA_prev * g'(Z)
-            # This is the chain rule: (dL/dA) * (dA/dZ) = dL/dZ
-            # Z = self.cache[f'Z{i}']
-            # dZ = dA_prev * g_prime(Z)
-
-            # # Get activation from the previous layer (or input X if it's the first hidden layer)
-            # A_prev = self.cache[f'A{i - 1}']
-
-            # # Calculate gradients for W and b for the current layer i
-            # self.grads[f'dW{i}'] = (1/m) * A_prev.T @ dZ
-            # self.grads[f'db{i}'] = (1/m) * torch.sum(dZ, dim=0)
-
-            # # Assign to .grad attribute
-            # self.params[f'W{i}'].grad = self.grads[f'dW{i}']
-            # self.params[f'b{i}'].grad = self.grads[f'db{i}']
-
-            # # If we are not at the first layer, calculate the gradient to pass to the next layer back
-            # if i > 1:
-            #     dA_prev = dZ @ self.params[f'W{i}'].T
-
             # current hidden layer - activation gradient
             # computes the gradient with respect to the layers pre-activation
             # dL/dZ = dL/dA * dA/dZ

@@ -22,9 +22,10 @@ def main(args):
         DATA_SAVE = 'data/processed/MNIST/'
         train_filepath = DATA_DIR + 'mnist_train.csv'
         test_filepath = DATA_DIR + 'mnist_test.csv'
-        train_dataset = MNISTDataset(
-            train_filepath, test_filepath, split='train')
-        val_dataset = MNISTDataset(train_filepath, test_filepath, split='val')
+        train_dataset = MNISTDataset(train_filepath, test_filepath,
+                                     split='train', val_size=args.vs, random_state=42)
+        val_dataset = MNISTDataset(train_filepath, test_filepath,
+                                   split='val', val_size=args.vs, random_state=42)
         test_dataset = MNISTDataset(
             train_filepath, test_filepath, split='test')
         output_dim = 10
@@ -34,8 +35,10 @@ def main(args):
         DATA_SAVE = 'data/processed/affNIST/'
         train_dir = DATA_DIR + 'training_and_validation_batches/'
         test_dir = DATA_DIR + 'test_batches/'
-        train_dataset = AffNISTDataset(train_dir, test_dir, split='train')
-        val_dataset = AffNISTDataset(train_dir, test_dir, split='val')
+        train_dataset = AffNISTDataset(train_dir, test_dir,
+                                       split='train', val_size=args.vs, random_state=42)
+        val_dataset = AffNISTDataset(train_dir, test_dir,
+                                     split='val', val_size=args.vs, random_state=42)
         test_dataset = AffNISTDataset(train_dir, test_dir, split='test')
         output_dim = 10
     elif args.ds == 'forestfires':
@@ -43,9 +46,13 @@ def main(args):
         DATA_DIR = 'data/raw/forestfires/'
         DATA_SAVE = 'data/processed/forestfires/'
         filepath = DATA_DIR + 'forestfires.csv'
-        train_dataset = ForestFiresDataset(filepath, split='train')
-        val_dataset = ForestFiresDataset(filepath, split='val')
-        test_dataset = ForestFiresDataset(filepath, split='test')
+        # Note: ForestFiresDataset already has test_size parameter
+        train_dataset = ForestFiresDataset(filepath, split='train',
+                                           val_size=args.vs, test_size=1-args.ts-args.vs)
+        val_dataset = ForestFiresDataset(filepath, split='val',
+                                         val_size=args.vs, test_size=1-args.ts-args.vs)
+        test_dataset = ForestFiresDataset(filepath, split='test',
+                                          val_size=args.vs, test_size=1-args.ts-args.vs)
         output_dim = 1
     else:
         raise ValueError(
@@ -67,7 +74,7 @@ def main(args):
             hidden_dim=HIDDEN_DIM,
             output_dim=output_dim,
             num_hidden_layers=NUM_HIDDEN_LAYERS,
-            initialization_method='xavier',
+            initialization_method=args.init,
             use_batch_norm=args.bn
         )
         output_activation = 'identity'
@@ -78,7 +85,7 @@ def main(args):
             hidden_dim=HIDDEN_DIM,
             output_dim=output_dim,
             num_hidden_layers=NUM_HIDDEN_LAYERS,
-            initialization_method='xavier',
+            initialization_method=args.init,
             use_batch_norm=args.bn
         )
         output_activation = 'softmax'  # softmax here - this is for the forward pass,
@@ -98,10 +105,10 @@ def main(args):
         for X_batch, y_batch in train_loader:
             optimizer.zero_grad()
             y_pred = model.forward(
-                X_batch, hidden_activation='relu', output_activation=output_activation, training=True)
+                X_batch, hidden_activation=args.activ, output_activation=output_activation, training=True)
             loss = model.loss(y_pred, y_batch)
             total_train_loss += loss.item()
-            model.backward(y_batch, hidden_activation='relu',
+            model.backward(y_batch, hidden_activation=args.activ,
                            loss_mode=loss_mode)
             optimizer.step()
 
@@ -109,7 +116,7 @@ def main(args):
         with torch.no_grad():
             for X_batch, y_batch in val_loader:  # Using val_loader for validation
                 y_pred = model.forward(
-                    X_batch, hidden_activation='relu', output_activation=output_activation, training=False)
+                    X_batch, hidden_activation=args.activ, output_activation=output_activation, training=False)
                 loss = model.loss(y_pred, y_batch)
                 total_val_loss += loss.item()
 
@@ -126,13 +133,17 @@ def main(args):
     plt.plot(history['train_loss'], label='Training Loss')
     plt.plot(history['val_loss'], label='Validation Loss')
     plt.title(
-        f'Training & Validation Loss Curve ({args.ds.upper()})')
+        f'Training & Validation Loss Curve ({args.ds.upper()}, {args.init}, {args.activ}, LR={args.lr}, Epochs={args.e}, BN={args.bn}), split train={args.ts}, val={args.vs}')
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
     plt.legend()
     plt.grid(True)
     # Create a unique filename for the plot
-    plot_filename = f'{DATA_SAVE}learning_curve_{args.ds}_lr{args.lr}_e{args.e}_bn{args.bn}.png'
+    if args.bn:
+        DATA_SAVE += 'BN-ON/'
+    else:
+        DATA_SAVE += 'BN-OFF/'
+    plot_filename = f'{DATA_SAVE}{args.init}_{args.activ}_{args.ds}_lr{args.lr}_e{args.e}_bn{args.bn}.png'
     plt.savefig(plot_filename)
     print(
         f"Learning curve plot saved to '{plot_filename}'\n")
@@ -144,7 +155,7 @@ def main(args):
     with torch.no_grad():
         for X_batch, y_batch in test_loader:
             y_pred = model.forward(
-                X_batch, hidden_activation='relu', output_activation=output_activation, training=False)
+                X_batch, hidden_activation=args.activ, output_activation=output_activation, training=False)
             loss = model.loss(y_pred, y_batch)
             total_test_loss += loss.item()
 
@@ -186,6 +197,20 @@ if __name__ == '__main__':
                         help='Number of training epochs.')
     parser.add_argument('--bn', action='store_true',
                         help='Use Batch Normalization.')
+    # Add new arguments for split sizes
+    parser.add_argument('--ts', type=float, default=0.7,
+                        help='Training set size (proportion). Default: 0.7')
+    parser.add_argument('--vs', type=float, default=0.15,
+                        help='Validation set size (proportion). Default: 0.15')
+    parser.add_argument('--init', type=str, default='xavier', choices=['xavier', 'he'],
+                        help='Weight initialization method. Default: xavier')
+    parser.add_argument('--activ', type=str, default='relu', choices=['relu', 'sigmoid', 'tanh', 'softmax', 'identity'],
+                        help='Activation function for hidden layers. Default: relu')
 
     args = parser.parse_args()
+
+    # Validate split proportions
+    if args.ts + args.vs >= 1.0:
+        raise ValueError(
+            "Training + validation split must be less than 1.0 to leave room for test set")
     main(args)
