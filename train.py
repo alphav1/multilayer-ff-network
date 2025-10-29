@@ -10,37 +10,42 @@ import argparse
 def main(args):
     # 1. Hyperparameters
     LEARNING_RATE = args.lr
-    EPOCHS = args.epochs
+    EPOCHS = args.e
     BATCH_SIZE = 64
     HIDDEN_DIM = 128
     NUM_HIDDEN_LAYERS = 2
 
     # 2. Load Data based on dataset argument
-    if args.dataset == 'mnist':
+    if args.ds == 'mnist':
         print("--- Using MNIST Dataset ---")
         DATA_DIR = 'data/raw/MNIST/'
         DATA_SAVE = 'data/processed/MNIST/'
         train_filepath = DATA_DIR + 'mnist_train.csv'
         test_filepath = DATA_DIR + 'mnist_test.csv'
-        train_dataset = MNISTDataset(filepath=train_filepath)
-        test_dataset = MNISTDataset(filepath=test_filepath)
+        train_dataset = MNISTDataset(
+            train_filepath, test_filepath, split='train')
+        val_dataset = MNISTDataset(train_filepath, test_filepath, split='val')
+        test_dataset = MNISTDataset(
+            train_filepath, test_filepath, split='test')
         output_dim = 10
-    elif args.dataset == 'affnist':
+    elif args.ds == 'affnist':
         print("--- Using affNIST Dataset ---")
         DATA_DIR = 'data/raw/affNIST/transformed/'
         DATA_SAVE = 'data/processed/affNIST/'
         train_dir = DATA_DIR + 'training_and_validation_batches/'
         test_dir = DATA_DIR + 'test_batches/'
-        train_dataset = AffNISTDataset(dirpath=train_dir)
-        test_dataset = AffNISTDataset(dirpath=test_dir)
+        train_dataset = AffNISTDataset(train_dir, test_dir, split='train')
+        val_dataset = AffNISTDataset(train_dir, test_dir, split='val')
+        test_dataset = AffNISTDataset(train_dir, test_dir, split='test')
         output_dim = 10
-    elif args.dataset == 'forestfires':
+    elif args.ds == 'forestfires':
         print("--- Using Forest Fires Dataset (Regression) ---")
         DATA_DIR = 'data/raw/forestfires/'
         DATA_SAVE = 'data/processed/forestfires/'
         filepath = DATA_DIR + 'forestfires.csv'
-        train_dataset = ForestFiresDataset(filepath=filepath, train=True)
-        test_dataset = ForestFiresDataset(filepath=filepath, train=False)
+        train_dataset = ForestFiresDataset(filepath, split='train')
+        val_dataset = ForestFiresDataset(filepath, split='val')
+        test_dataset = ForestFiresDataset(filepath, split='test')
         output_dim = 1
     else:
         raise ValueError(
@@ -49,18 +54,21 @@ def main(args):
     # 3. Create DataLoaders
     train_loader = DataLoader(
         train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
     test_loader = DataLoader(
         test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    print(
+        f"Data split: {len(train_dataset)} training, {len(val_dataset)} validation, {len(test_dataset)} test samples.")
 
     # 4. Initialize Model
-    if args.dataset == 'forestfires':
+    if args.ds == 'forestfires':
         model = MyFFNetworkForRegression(
             input_dim=train_dataset.X.shape[1],
             hidden_dim=HIDDEN_DIM,
             output_dim=output_dim,
             num_hidden_layers=NUM_HIDDEN_LAYERS,
             initialization_method='xavier',
-            hidden_activation='relu'
+            use_batch_norm=args.bn
         )
         output_activation = 'identity'
         loss_mode = 'mse'
@@ -71,22 +79,26 @@ def main(args):
             output_dim=output_dim,
             num_hidden_layers=NUM_HIDDEN_LAYERS,
             initialization_method='xavier',
+            use_batch_norm=args.bn
         )
-        output_activation = 'softmax'
-        loss_mode = 'softmax_ce'
+        output_activation = 'softmax'  # softmax here - this is for the forward pass,
+        # it specifies the activation function to apply to the final layer to produce the prediction
+        loss_mode = 'softmax_ce'  # softmax here - this is for the backward pass,
+        # it specifies how to calculate the initial gradient, since we can use a shortcut knowing the loss was calculated with CE
+        # and the forward pass was the softmax, so we can use the simplified gradient formula
 
     # 5. Initialize Optimizer
     optimizer = torch.optim.SGD(model.params.values(), lr=LEARNING_RATE)
 
     # 6. Training & History Tracking
     history = {'train_loss': [], 'val_loss': []}
-    print("--- Starting Training ---")
+    print("\n--- Starting Training ---")
     for epoch in range(EPOCHS):
         total_train_loss = 0
         for X_batch, y_batch in train_loader:
             optimizer.zero_grad()
             y_pred = model.forward(
-                X_batch, hidden_activation='relu', output_activation=output_activation)
+                X_batch, hidden_activation='relu', output_activation=output_activation, training=True)
             loss = model.loss(y_pred, y_batch)
             total_train_loss += loss.item()
             model.backward(y_batch, hidden_activation='relu',
@@ -95,16 +107,16 @@ def main(args):
 
         total_val_loss = 0
         with torch.no_grad():
-            for X_batch, y_batch in test_loader:  # Using test_loader as validation
+            for X_batch, y_batch in val_loader:  # Using val_loader for validation
                 y_pred = model.forward(
-                    X_batch, hidden_activation='relu', output_activation=output_activation)
+                    X_batch, hidden_activation='relu', output_activation=output_activation, training=False)
                 loss = model.loss(y_pred, y_batch)
                 total_val_loss += loss.item()
 
-        avg_val_loss = total_val_loss / len(test_loader)
         avg_train_loss = total_train_loss / len(train_loader)
+        avg_val_loss = total_val_loss / len(val_loader)
         history['train_loss'].append(avg_train_loss)
-        history['val_loss'] = history.get('val_loss', []) + [avg_val_loss]
+        history['val_loss'].append(avg_val_loss)
         print(
             f"Epoch {epoch + 1}/{EPOCHS} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
     print("--- Training Finished ---\n")
@@ -114,28 +126,32 @@ def main(args):
     plt.plot(history['train_loss'], label='Training Loss')
     plt.plot(history['val_loss'], label='Validation Loss')
     plt.title(
-        f'Training Loss Curve ({args.dataset.upper()}) with LR={LEARNING_RATE} across {EPOCHS} epochs')
+        f'Training & Validation Loss Curve ({args.ds.upper()})')
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
     plt.legend()
     plt.grid(True)
-    plt.savefig(f'{DATA_SAVE}learning_curve_{args.dataset}.png')
+    # Create a unique filename for the plot
+    plot_filename = f'{DATA_SAVE}learning_curve_{args.ds}_lr{args.lr}_e{args.e}_bn{args.bn}.png'
+    plt.savefig(plot_filename)
     print(
-        f"Learning curve plot saved to '{DATA_SAVE}learning_curve_{args.dataset}.png'\n")
+        f"Learning curve plot saved to '{plot_filename}'\n")
 
     # 8. Final Evaluation on Test Set
-    print(f"--- Evaluating on {args.dataset.upper()} Test Set ---")
+    print(f"--- Evaluating on {args.ds.upper()} Test Set ---")
     y_true_all, y_pred_all = [], []
     total_test_loss = 0
     with torch.no_grad():
         for X_batch, y_batch in test_loader:
             y_pred = model.forward(
-                X_batch, hidden_activation='relu', output_activation=output_activation)
+                X_batch, hidden_activation='relu', output_activation=output_activation, training=False)
             loss = model.loss(y_pred, y_batch)
             total_test_loss += loss.item()
 
             # Correctly handle predictions for each task type
-            if args.dataset == 'forestfires':
+            if args.ds == 'forestfires':
+                # For regression, we might need to inverse transform if we scaled the target
+                # The current ForestFiresDataset log-transforms the target, so predictions are also on a log scale.
                 y_pred_all.extend(y_pred.numpy())
             else:  # Classification
                 _, predicted_labels = torch.max(y_pred, 1)
@@ -146,7 +162,7 @@ def main(args):
     avg_test_loss = total_test_loss / len(test_loader)
     print(f"Final Test Loss: {avg_test_loss:.4f}\n")
 
-    if args.dataset == 'forestfires':
+    if args.ds == 'forestfires':
         mse = mean_squared_error(y_true_all, y_pred_all)
         r2 = r2_score(y_true_all, y_pred_all)
         print(f"Mean Squared Error (on log-transformed data): {mse:.4f}")
@@ -162,12 +178,14 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Train a Feed-Forward Neural Network.')
-    parser.add_argument('--dataset', type=str, default='mnist', choices=['mnist', 'affnist', 'forestfires'],
+    parser.add_argument('--ds', type=str, default='mnist', choices=['mnist', 'affnist', 'forestfires'],
                         help='The dataset to train on.')
     parser.add_argument('--lr', type=float, default=0.01,
                         help='Learning rate.')
-    parser.add_argument('--epochs', type=int, default=20,
+    parser.add_argument('--e', type=int, default=20,
                         help='Number of training epochs.')
+    parser.add_argument('--bn', action='store_true',
+                        help='Use Batch Normalization.')
 
     args = parser.parse_args()
     main(args)

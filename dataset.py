@@ -48,29 +48,46 @@ def _todict(matobj):
 
 
 class MNISTDataset(Dataset):
-    """ Handles loading, normalization, and preparation of the MNIST dataset using pytorch Dataset and DataLoader. """
+    """
+    Handles loading, splitting, and preparation of the MNIST dataset.
+    The test set is kept separate, and the training data is split into train/validation.
+    """
 
-    def __init__(self, filepath: str):
+    def __init__(self, train_filepath: str, test_filepath: str, split: str = 'train', val_size: float = 0.2, random_state: int = 42):
         """
-        Loads data from CSV, normalizes, and stores as PyTorch tensors.
-
         Args:
-            filepath (str): Path to the CSV file (e.g., data/raw/MNIST/mnist_train.csv).
+            train_filepath (str): Path to the training CSV file.
+            test_filepath (str): Path to the testing CSV file.
+            split (str): The partition of data to use ('train', 'val', or 'test').
+            val_size (float): The proportion of the training data to use for validation.
+            random_state (int): Seed for the random split.
         """
-        print(f"Loading data from: {filepath}")
-        df = pd.read_csv(filepath)
+        print(f"Loading MNIST data for '{split}' split...")
 
-        # Labels are the first column (index 0)
-        labels = df.iloc[:, 0].values
-        # Features are all other columns (pixels)
-        features = df.iloc[:, 1:].values.astype(np.float32)
+        if split == 'test':
+            df = pd.read_csv(test_filepath)
+            labels = df.iloc[:, 0].values
+            features = df.iloc[:, 1:].values.astype(np.float32)
+        else:  # 'train' or 'val'
+            df = pd.read_csv(train_filepath)
+            full_labels = df.iloc[:, 0].values
+            full_features = df.iloc[:, 1:].values.astype(np.float32)
+
+            # Split the full training data into a smaller training set and a validation set
+            train_features, val_features, train_labels, val_labels = train_test_split(
+                full_features, full_labels, test_size=val_size, random_state=random_state
+            )
+
+            if split == 'train':
+                features, labels = train_features, train_labels
+            else:  # 'val'
+                features, labels = val_features, val_labels
 
         # Normalization: Scale pixel values to [0, 1]
         features /= 255.0
 
-        # Convert to PyTorch tensors and store them
+        # Convert to PyTorch tensors
         self.X = torch.from_numpy(features)
-        # Labels should be LongTensor for Cross-Entropy Loss in classification
         self.y = torch.from_numpy(labels).long()
 
     def __len__(self) -> int:
@@ -83,45 +100,57 @@ class MNISTDataset(Dataset):
 
 
 class AffNISTDataset(Dataset):
-    """ Handles loading and preparation of the affNIST dataset from .mat batch files. """
+    """
+    Handles loading and preparation of the affNIST dataset from .mat batch files.
+    The test set is kept separate, and the training data is split into train/validation.
+    """
 
-    def __init__(self, dirpath: str):
+    def __init__(self, train_dir: str, test_dir: str, split: str = 'train', val_size: float = 0.2, random_state: int = 42):
         """
-        Loads all .mat batch files from a directory, normalizes, and stores as tensors.
-
         Args:
-            dirpath (str): Path to the directory containing .mat batch files.
+            train_dir (str): Path to the directory with training .mat files.
+            test_dir (str): Path to the directory with testing .mat files.
+            split (str): The partition of data to use ('train', 'val', or 'test').
+            val_size (float): The proportion of the training data to use for validation.
+            random_state (int): Seed for the random split.
         """
-        print(f"Loading affNIST data from: {dirpath}")
+        print(f"Loading affNIST data for '{split}' split...")
+
+        if split == 'test':
+            source_dir = test_dir
+        else:  # 'train' or 'val'
+            source_dir = train_dir
 
         all_features = []
         all_labels = []
-
-        # Iterate through all .mat files in the directory
-        for filename in sorted(os.listdir(dirpath)):
+        for filename in sorted(os.listdir(source_dir)):
             if filename.endswith('.mat'):
-                filepath = os.path.join(dirpath, filename)
+                filepath = os.path.join(source_dir, filename)
                 data = loadmat(filepath)
+                all_features.append(
+                    data['affNISTdata']['image'].T.astype(np.float32))
+                all_labels.append(data['affNISTdata']['label_int'])
 
-                # Images are (1600, num_samples), transpose to (num_samples, 1600)
-                features = data['affNISTdata']['image'].T.astype(np.float32)
-                labels = data['affNISTdata']['label_int']
-
-                all_features.append(features)
-                all_labels.append(labels)
-
-        # Concatenate data from all batches
         features = np.vstack(all_features)
         labels = np.concatenate(all_labels)
 
-        # 1. Normalization: Scale pixel values to [0, 1]
+        if split in ['train', 'val']:
+            train_features, val_features, train_labels, val_labels = train_test_split(
+                features, labels, test_size=val_size, random_state=random_state
+            )
+            if split == 'train':
+                features, labels = train_features, train_labels
+            else:  # 'val'
+                features, labels = val_features, val_labels
+
+        # Normalization: Scale pixel values to [0, 1]
+        # turn raw pixel value (large and small numbers) to correct input type
         features /= 255.0
 
         # Convert to PyTorch tensors
         self.X = torch.from_numpy(features)
         self.y = torch.from_numpy(labels).long()
-
-        print(f"Loaded {len(self.y)} samples.")
+        print(f"Loaded {len(self.y)} samples for '{split}' split.")
 
     def __len__(self) -> int:
         return len(self.y)
@@ -131,38 +160,62 @@ class AffNISTDataset(Dataset):
 
 
 class ForestFiresDataset(Dataset):
-    """ Handles loading and preparation of the Forest Fires dataset for regression. """
+    """
+    Handles loading, splitting, and preparation of the Forest Fires dataset.
+    The entire dataset is split into train, validation, and test sets.
+    """
+    # preprocessing
+    _scaler = StandardScaler()  # creates an instance of standardscaler
+    # standardizes features by removing the mean and scaling to unit variance z = (x - mean) / std
+    _is_fitted = False
+    # bolean flag to track if scaler has been fitted to the data
 
-    def __init__(self, filepath: str, train: bool = True, test_size: float = 0.2, random_state: int = 42):
-        print(f"Loading Forest Fires data from: {filepath}")
+    def __init__(self, filepath: str, split: str = 'train', val_size: float = 0.15, test_size: float = 0.15, random_state: int = 42):
+        """
+        Args:
+            filepath (str): Path to the forestfires.csv file.
+            split (str): The partition of data to use ('train', 'val', or 'test').
+            val_size (float): Proportion for the validation set.
+            test_size (float): Proportion for the test set.
+            random_state (int): Seed for the random splits.
+        """
+        print(f"Loading Forest Fires data for '{split}' split...")
         df = pd.read_csv(filepath)
-
-        # Convert categorical month and day to numerical
         df = pd.get_dummies(df, columns=['month', 'day'], drop_first=True)
 
         # Separate features (X) and target (y)
         X = df.drop('area', axis=1).values.astype(np.float32)
         y = df['area'].values.astype(np.float32)
 
-        # Split data into training and testing sets
-        X_train, X_test, y_train, y_test = train_test_split(
+        # Split into initial training set and a temporary test set
+        X_train_full, X_test, y_train_full, y_test = train_test_split(
             X, y, test_size=test_size, random_state=random_state)
 
-        # Standardize numerical features
-        scaler = StandardScaler()
-        X_train = scaler.fit_transform(X_train)
-        X_test = scaler.transform(X_test)
+        # Split the initial training set into a final training set and a validation set
+        # e.g. 1 - full data, test size = 0.2 (20%), then if val_size 0.16, val split = 0.2
+        val_split_ratio = val_size / (1.0 - test_size)
+        X_train, X_val, y_train, y_val = train_test_split(
+            # e.g. 20% of the remaining 80% is validation
+            X_train_full, y_train_full, test_size=val_split_ratio, random_state=random_state)
 
-        if train:
-            self.X = torch.from_numpy(X_train)
-            # Apply log transform to the skewed target variable
-            self.y = torch.from_numpy(np.log1p(y_train))
-        else:
-            self.X = torch.from_numpy(X_test)
-            self.y = torch.from_numpy(np.log1p(y_test))
+        if split == 'train':
+            if not ForestFiresDataset._is_fitted:
+                self.X_raw = X_train
+                ForestFiresDataset._scaler.fit(self.X_raw)  # scaler run
+                ForestFiresDataset._is_fitted = True  # change fitted
+            self.y_raw = y_train
+        elif split == 'val':
+            self.X_raw = X_val
+            self.y_raw = y_val
+        else:  # 'test'
+            self.X_raw = X_test
+            self.y_raw = y_test
 
-        # Reshape y to be a column vector
-        self.y = self.y.view(-1, 1)
+        # Standardize features
+        self.X = torch.from_numpy(
+            ForestFiresDataset._scaler.transform(self.X_raw))
+        # Apply log transform to the skewed target variable and reshape
+        self.y = torch.from_numpy(np.log1p(self.y_raw)).view(-1, 1)
 
     def __len__(self) -> int:
         return len(self.X)
