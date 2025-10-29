@@ -279,10 +279,19 @@ class BaseNetwork:
             dZ = y_pred - y_true_one_hot
         elif loss_mode == 'mse':
             # For linear output + MSE, dZ = y_pred - y_true
-            # Assumes y_true is already in the correct format (not class indices)
+            # backpropagation starts by calculating the derivative of the loss with respect to the pre-activation output Z of the final output layer
+            # this is dZ - we use the chain rule dL/dZ = dL/dA * dA/dZ, where
+            # A is the final activation (y_pred) - for regression, the final layers activation is identitty, meaning it is A = Z
+            # dA/dZ is the derivative of the activation, and since the activation is A=Z, the derivative is 1
+            # dL/DA is the derivative of the loss - we differentiate the loss function with respect to A - (y_pred)
+            # loss is L = (1/m) * (A - y_true)^2
+            # the derivative is dL/dA is (1/m) * 2 * (a - y_true)
+            # so together it is dL/dZ = (2/m) * (a - y_true) * 1 = (2/m) (y_pred - y_true)
+            # common practice to omit (2/m), since it is the scaling factor and nothing more
             dZ = y_pred - y_true
-        elif loss_mode == 'sigmoid_bce':
-            dZ = y_pred - y_true
+            dZ = (2/m) * dZ
+        # elif loss_mode == 'sigmoid_bce':
+        #     dZ = y_pred - y_true
         else:
             raise ValueError(f"Unsupported loss_mode: {loss_mode}")
 
@@ -324,7 +333,7 @@ class BaseNetwork:
         }
         g_prime = activation_derivatives[hidden_activation]
 
-        # Loop backwards from the last hidden layer to the first
+        # loop backwards from the last hidden layer to the first
         for i in range(self.num_hidden_layers, 0, -1):
             # dZ for the current hidden layer: dA_prev * g'(Z)
             # This is the chain rule: (dL/dA) * (dA/dZ) = dL/dZ
@@ -346,41 +355,79 @@ class BaseNetwork:
             # if i > 1:
             #     dA_prev = dZ @ self.params[f'W{i}'].T
 
+            # current hidden layer - activation gradient
+            # computes the gradient with respect to the layers pre-activation
+            # dL/dZ = dL/dA * dA/dZ
+            # dA_prev - this is dL/dA - the gradient with respect to the activation
+            # derviative of the activation function dA/dZ is g_prime(z_i)
             dZ_activated = dA_prev * g_prime(self.cache[f'Z{i}'])
 
+            # for batch normalization, we must retrieve the cached values from forward pass
+            # the relationship between the final dZ and dZ_activated is complex.
+            # we have to backpropagate the dZ_activated signal through the entire Batch Norm calculation
+            # (the scaling by gamma, the shifting by beta, the division by standard deviation,
+            # and the subtraction of the mean).
             if self.use_batch_norm:
+                # normalized values
                 Z_hat = self.bn_cache[f'Z_hat{i}']
+                # gamma is the scaling parameter
                 gamma = self.bn_cache[f'gamma{i}']
+                # batch varience
                 batch_var = self.bn_cache[f'batch_var{i}']
+                # small epsilon
                 epsilon = self.bn_cache[f'epsilon{i}']
+                # pre-batch normalized activation
                 Z_pre_bn = self.cache[f'Z_pre_bn{i}']
 
                 # Gradients for gamma and beta
                 dbeta = torch.sum(dZ_activated, dim=0)
+                # summing across batch dimensions with dZ_activated gives how much we need to adjust the shift beta
+                # this is dL/dgamma for the loss L
                 dgamma = torch.sum(dZ_activated * Z_hat, dim=0)
+                # summing across with element-wise multiplication of dZ-activated * z_normalized gives how much to adjust gamma
+                # this is dL/dbeta for the loss L
                 self.bn_params[f'beta{i}'].grad = dbeta
                 self.bn_params[f'gamma{i}'].grad = dgamma
 
                 # Backprop through normalization
                 dZ_hat = dZ_activated * gamma
+                # gradient with respect to the normalized values by multiplying the upstream gradient with gamma
                 inv_std = 1. / torch.sqrt(batch_var + epsilon)
+                # inverse of the standard deviation
                 dvar = torch.sum(dZ_hat * (Z_pre_bn - Z_pre_bn.mean(dim=0))
                                  * -0.5 * (batch_var + epsilon)**(-1.5), dim=0)
+                # gradient of the variance using the chain rule - dL/dvar = sum i dL/dx_hat_i * dx_hat_i / dvar^2
                 dmean = torch.sum(dZ_hat * -inv_std, dim=0) + dvar * \
                     torch.mean(-2. * (Z_pre_bn - Z_pre_bn.mean(dim=0)), dim=0)
+                # computes the gradient of mean dL/dmean
                 dZ = dZ_hat * inv_std + \
                     (dvar * 2 * (Z_pre_bn - Z_pre_bn.mean(dim=0)) / m) + (dmean / m)
+                # finally, the input gradient is calculated
+                # the direct path through normalization
+                # indirect path through variance
+                # indirect path through mean
             else:
-                dZ = dZ_activated
+                dZ = dZ_activated  # iuf theres no batch norm, it is much simpler
+                # output of the linear layer (Z) was passed directly to the activation function
+                # therefore, when going backward, there is no Batch Norm step to reverse.
+                # the gradient dZ_activated (the error signal after the activation) is already the correct gradient for the linear layer's output (dZ).
 
             A_prev = self.cache[f'A{i - 1}']
+            # the previous activation from the previous layer
             self.grads[f'dW{i}'] = (1/m) * A_prev.T @ dZ
+            # calculate the gradient for weights in the current layer
+            # transposed activation from the previous layer
+            # implements dL/dW = 1/2 * A[;l-1]T * dZ[l]
             self.grads[f'db{i}'] = (1/m) * torch.sum(dZ, dim=0)
+            # bias is similarily calculated
+            # implements dL/dB = 1/m sum dZ[l]
             self.params[f'W{i}'].grad = self.grads[f'dW{i}']
             self.params[f'b{i}'].grad = self.grads[f'db{i}']
 
             if i > 1:
                 dA_prev = dZ @ self.params[f'W{i}'].T
+                # for all layers expect the first, compute the gradient to propagate to the previous layer
+                # dA[l-1] = dZ[l] * W[l]T
 
 
 class MyFFNetworkForClassification(BaseNetwork):
@@ -434,18 +481,22 @@ class MyFFNetworkForRegression(BaseNetwork):
         Returns:
             torch.Tensor: The mean MSE loss.
         """
+        # y_true is the correct actual value
+        # y_pred is the value rpedicted by the network
+        # m is the number of samples in the batch
         m = y_true.shape[0]
+        # the loss is calculated with the formula L = 1/m * sum m i=1 (y_pred,i - y_true,i)^2
         loss = torch.sum((y_pred - y_true)**2) / m
         return loss
 
 
-class MyFFNetworkForBinaryClassification(BaseNetwork):
-    """A feed-forward network specialized for binary classification tasks."""
+# class MyFFNetworkForBinaryClassification(BaseNetwork):
+#     """A feed-forward network specialized for binary classification tasks."""
 
-    def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
-        m = y_true.shape[0]
-        epsilon = 1e-12
-        y_pred = torch.clamp(y_pred, epsilon, 1. - epsilon)
-        bce_loss = - (y_true * torch.log(y_pred) +
-                      (1 - y_true) * torch.log(1 - y_pred))
-        return torch.sum(bce_loss) / m
+#     def loss(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+#         m = y_true.shape[0]
+#         epsilon = 1e-12
+#         y_pred = torch.clamp(y_pred, epsilon, 1. - epsilon)
+#         bce_loss = - (y_true * torch.log(y_pred) +
+#                       (1 - y_true) * torch.log(1 - y_pred))
+#         return torch.sum(bce_loss) / m
