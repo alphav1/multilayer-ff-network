@@ -95,10 +95,22 @@ def main(args):
         # and the forward pass was the softmax, so we can use the simplified gradient formula
 
     # 5. Initialize Optimizer
-    optimizer = torch.optim.SGD(model.params.values(), lr=LEARNING_RATE)
+    if args.optimizer == 'sgd':
+        optimizer = torch.optim.SGD(model.params.values(), lr=LEARNING_RATE)
+        print("--- Using SGD Optimizer ---")
+    elif args.optimizer == 'sgd_momentum':
+        optimizer = torch.optim.SGD(
+            model.params.values(), lr=LEARNING_RATE, momentum=0.9)
+        print("--- Using SGD with Momentum Optimizer ---")
+    elif args.optimizer == 'adam':
+        optimizer = torch.optim.Adam(model.params.values(), lr=LEARNING_RATE)
+        print("--- Using Adam Optimizer ---")
+    else:
+        raise ValueError("Invalid optimizer specified.")
 
     # 6. Training & History Tracking
     history = {'train_loss': [], 'val_loss': []}
+    grad_history = {}  # For tracking gradients
     print("\n--- Starting Training ---")
     for epoch in range(EPOCHS):
         total_train_loss = 0
@@ -110,6 +122,16 @@ def main(args):
             total_train_loss += loss.item()
             model.backward(y_batch, hidden_activation=args.activ,
                            loss_mode=loss_mode)
+
+            # Track gradients for each layer
+            for i in range(1, model.num_hidden_layers + 2):
+                layer_grad_key = f'dW{i}'
+                if layer_grad_key in model.grads:
+                    if layer_grad_key not in grad_history:
+                        grad_history[layer_grad_key] = []
+                    grad_history[layer_grad_key].append(
+                        torch.abs(model.grads[layer_grad_key]).mean().item())
+
             optimizer.step()
 
         total_val_loss = 0
@@ -148,7 +170,31 @@ def main(args):
     print(
         f"Learning curve plot saved to '{plot_filename}'\n")
 
-    # 8. Final Evaluation on Test Set
+    # 8. Gradient Flow Analysis Plot
+    if grad_history:
+        plt.figure(figsize=(12, 6))
+
+        # Calculate the average of the mean absolute gradients for each layer
+        avg_grads = {name: sum(grads)/len(grads) for name, grads in grad_history.items()}
+
+        layer_names = sorted(avg_grads.keys())
+        avg_values = [avg_grads[name] for name in layer_names]
+
+        plt.bar(layer_names, avg_values, color='teal')
+        plt.xlabel('Layer Weights')
+        plt.ylabel('Mean Absolute Gradient (log scale)')
+        plt.title('Gradient Flow Analysis')
+        plt.yscale('log')  # Log scale is essential to see both vanishing and exploding gradients
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+
+        # Save the gradient flow plot
+        grad_plot_filename = f'{DATA_SAVE}gradient_flow_{args.ds}_lr{args.lr}_e{args.e}_bn{args.bn}_{args.optimizer}.png'
+        plt.savefig(grad_plot_filename)
+        print(f"Gradient flow plot saved to '{grad_plot_filename}'\n")
+    else:
+        print("No gradient history was recorded.")
+
+    # 9. Final Evaluation on Test Set
     print(f"--- Evaluating on {args.ds.upper()} Test Set ---")
     y_true_all, y_pred_all = [], []
     total_test_loss = 0
@@ -202,10 +248,12 @@ if __name__ == '__main__':
                         help='Training set size (proportion). Default: 0.7')
     parser.add_argument('--vs', type=float, default=0.15,
                         help='Validation set size (proportion). Default: 0.15')
-    parser.add_argument('--init', type=str, default='xavier', choices=['xavier', 'he'],
+    parser.add_argument('--init', type=str, default='he', choices=['xavier', 'he', 'constant'],
                         help='Weight initialization method. Default: xavier')
     parser.add_argument('--activ', type=str, default='relu', choices=['relu', 'sigmoid', 'tanh', 'softmax', 'identity'],
                         help='Activation function for hidden layers. Default: relu')
+    parser.add_argument('--optimizer', type=str, default='sgd', choices=['sgd', 'sgd_momentum', 'adam'],
+                        help='Optimizer to use. Default: sgd')
 
     args = parser.parse_args()
 

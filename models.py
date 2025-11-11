@@ -56,6 +56,10 @@ class BaseNetwork:
                 W = torch.randn(prev_dim, current_dim) * std
                 # samples from a normal distribution with mean 0, std deviation 1,
                 # std scales all the values by a standard deviation factor std
+            elif method == 'constant':
+                # Initialize weights to a small constant value.
+                # Note: This is generally not recommended for deep networks.
+                W = torch.full((prev_dim, current_dim), 0.01)
             else:
                 std = 1.0 / (f_in ** 0.5)
                 W = torch.randn(prev_dim, current_dim) * std
