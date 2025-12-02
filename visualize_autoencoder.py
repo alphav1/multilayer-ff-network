@@ -188,11 +188,15 @@ def visualize_umap(model, test_loader, save_dir='data/processed/FashionMNIST/', 
     plt.xlabel('UMAP 1')
     plt.ylabel('UMAP 2')
     plt.grid(True, alpha=0.3)
-    
+
     os.makedirs(save_dir, exist_ok=True)
-    plt.savefig(os.path.join(save_dir, 'umap_visualization.png'), dpi=150, bbox_inches='tight')
-    print(f"UMAP visualization saved to {os.path.join(save_dir, 'umap_visualization.png')}")
+    plt.savefig(os.path.join(save_dir, 'umap_visualization.png'),
+                dpi=150, bbox_inches='tight')
+    print(
+        f"UMAP visualization saved to {os.path.join(save_dir, 'umap_visualization.png')}")
     plt.close()
+
+
 def main(args):
     """
     Main function for Part 1: Initial Exploration
@@ -233,7 +237,8 @@ def main(args):
             if len(path_parts) > models_idx + 1:
                 # Reconstruct path: data/processed/FashionMNIST/reg_type/lr/e/
                 relative_path = os.path.join(*path_parts[models_idx + 1:])
-                save_dir = os.path.join('data/processed/FashionMNIST/', relative_path, '')
+                save_dir = os.path.join(
+                    'data/processed/FashionMNIST/', relative_path, '')
                 print(f"Auto-detected save directory: {save_dir}")
             else:
                 save_dir = args.save_dir

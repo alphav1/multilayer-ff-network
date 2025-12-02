@@ -20,22 +20,23 @@ def train_autoencoder(args):
     # 2. Load Fashion MNIST Data
     print("--- Loading Fashion MNIST Dataset ---")
     DATA_DIR = 'data/raw/MNIST/'  # Assuming Fashion MNIST is in same location
-    
+
     # Create organized directory structure based on configuration
     base_save_dir = 'data/processed/FashionMNIST/'
     base_model_dir = 'models/'
-    
+
     # Build directory path: regularization/lr/epochs
     regularization_flags = []
     if args.denoise:
         regularization_flags.append('denoise')
     if args.early_stop:
         regularization_flags.append('earlystop')
-    
-    reg_str = '_'.join(regularization_flags) if regularization_flags else 'noreg'
+
+    reg_str = '_'.join(
+        regularization_flags) if regularization_flags else 'noreg'
     lr_dir = f"lr{args.lr}"
     epochs_dir = f"e{args.epochs}"
-    
+
     DATA_SAVE = os.path.join(base_save_dir, reg_str, lr_dir, epochs_dir, '')
     MODEL_DIR = os.path.join(base_model_dir, reg_str, lr_dir, epochs_dir, '')
 
@@ -161,16 +162,21 @@ def train_autoencoder(args):
                 if model.use_batch_norm:
                     best_model_state['running_stats'] = {}
                     for i in range(1, len(model.layer_dims) - 1):
-                        best_model_state['running_stats'][f'running_mean{i}'] = getattr(model, f'running_mean{i}').clone()
-                        best_model_state['running_stats'][f'running_var{i}'] = getattr(model, f'running_var{i}').clone()
+                        best_model_state['running_stats'][f'running_mean{i}'] = getattr(
+                            model, f'running_mean{i}').clone()
+                        best_model_state['running_stats'][f'running_var{i}'] = getattr(
+                            model, f'running_var{i}').clone()
             else:
                 patience_counter += 1
                 if patience_counter >= args.patience:
-                    print(f"Epoch {epoch + 1}/{EPOCHS} | Train Loss: {avg_train_loss:.6f} | Val Loss: {avg_val_loss:.6f}")
-                    print(f"Early stopping triggered after {epoch + 1} epochs (patience={args.patience})")
+                    print(
+                        f"Epoch {epoch + 1}/{EPOCHS} | Train Loss: {avg_train_loss:.6f} | Val Loss: {avg_val_loss:.6f}")
+                    print(
+                        f"Early stopping triggered after {epoch + 1} epochs (patience={args.patience})")
                     # Restore best model
                     if best_model_state is not None:
-                        print(f"Restoring best model with validation loss: {best_val_loss:.6f}")
+                        print(
+                            f"Restoring best model with validation loss: {best_val_loss:.6f}")
                         for k, v in best_model_state['params'].items():
                             model.params[k].data = v.clone()
                         if model.use_batch_norm:
@@ -180,10 +186,11 @@ def train_autoencoder(args):
                                 setattr(model, k, v.clone())
                     break
 
-        print(f"Epoch {epoch + 1}/{EPOCHS} | Train Loss: {avg_train_loss:.6f} | Val Loss: {avg_val_loss:.6f}{improvement_msg}")
+        print(
+            f"Epoch {epoch + 1}/{EPOCHS} | Train Loss: {avg_train_loss:.6f} | Val Loss: {avg_val_loss:.6f}{improvement_msg}")
 
     print("--- Pre-training Finished ---\n")
-    
+
     # Build filename with configuration flags
     model_filename_parts = [
         f"autoencoder",
@@ -191,20 +198,20 @@ def train_autoencoder(args):
         f"{args.activation}",
         f"dims{'_'.join(map(str, HIDDEN_DIMS))}"
     ]
-    
+
     if args.denoise:
         model_filename_parts.append(f'denoise{args.noise_std}')
     if args.early_stop:
         model_filename_parts.append(f'earlystop_p{args.patience}')
     if args.bn:
         model_filename_parts.append('bn')
-    
+
     model_filename = '_'.join(model_filename_parts) + '.pth'
-    
+
     # Save the model (best if early stopping was used, otherwise final)
     model_save_path = os.path.join(MODEL_DIR, model_filename)
     model.save_model(model_save_path)
-    
+
     if args.early_stop and best_model_state is not None:
         print(f"Best model saved to: {model_save_path}")
         print(f"Best validation loss: {best_val_loss:.6f}")
@@ -215,15 +222,16 @@ def train_autoencoder(args):
     plt.figure(figsize=(10, 5))
     plt.plot(history['train_loss'], label='Training Loss')
     plt.plot(history['val_loss'], label='Validation Loss')
-    
-    title_parts = [f'dims={HIDDEN_DIMS}', f'LR={LEARNING_RATE}', f'BS={BATCH_SIZE}']
+
+    title_parts = [f'dims={HIDDEN_DIMS}',
+                   f'LR={LEARNING_RATE}', f'BS={BATCH_SIZE}']
     if args.denoise:
         title_parts.append(f'Denoise({args.noise_std})')
     if args.early_stop:
         title_parts.append(f'EarlyStop(p={args.patience})')
     if args.bn:
         title_parts.append('BN')
-    
+
     plt.title(f'Autoencoder Training Loss ({" | ".join(title_parts)})')
     plt.xlabel('Epochs')
     plt.ylabel('Reconstruction Loss (MSE)')
@@ -293,8 +301,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Train the autoencoder
-    trained_model, training_history, data_save_dir, model_save_dir = train_autoencoder(args)
-    
+    trained_model, training_history, data_save_dir, model_save_dir = train_autoencoder(
+        args)
+
     print("\n" + "="*60)
     print("Training Complete!")
     print("="*60)
