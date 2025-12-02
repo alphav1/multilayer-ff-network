@@ -175,7 +175,8 @@ def main(args):
         plt.figure(figsize=(12, 6))
 
         # Calculate the average of the mean absolute gradients for each layer
-        avg_grads = {name: sum(grads)/len(grads) for name, grads in grad_history.items()}
+        avg_grads = {name: sum(grads)/len(grads)
+                     for name, grads in grad_history.items()}
 
         layer_names = sorted(avg_grads.keys())
         avg_values = [avg_grads[name] for name in layer_names]
@@ -184,7 +185,8 @@ def main(args):
         plt.xlabel('Layer Weights')
         plt.ylabel('Mean Absolute Gradient (log scale)')
         plt.title('Gradient Flow Analysis')
-        plt.yscale('log')  # Log scale is essential to see both vanishing and exploding gradients
+        # Log scale is essential to see both vanishing and exploding gradients
+        plt.yscale('log')
         plt.grid(axis='y', linestyle='--', alpha=0.7)
 
         # Save the gradient flow plot

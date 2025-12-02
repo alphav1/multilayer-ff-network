@@ -159,6 +159,59 @@ class AffNISTDataset(Dataset):
         return self.X[idx], self.y[idx]
 
 
+class FashionMNISTDataset(Dataset):
+    """
+    Handles loading, splitting, and preparation of the Fashion MNIST dataset.
+    Uses the same structure as MNIST dataset.
+    """
+
+    def __init__(self, train_filepath: str, test_filepath: str, split: str = 'train',
+                 val_size: float = 0.2, random_state: int = 42):
+        """
+        Args:
+            train_filepath (str): Path to the training CSV file.
+            test_filepath (str): Path to the testing CSV file.
+            split (str): The partition of data to use ('train', 'val', or 'test').
+            val_size (float): The proportion of the training data to use for validation.
+            random_state (int): Seed for the random split.
+        """
+        print(f"Loading Fashion MNIST data for '{split}' split...")
+
+        if split == 'test':
+            df = pd.read_csv(test_filepath)
+            labels = df.iloc[:, 0].values
+            features = df.iloc[:, 1:].values.astype(np.float32)
+        else:  # 'train' or 'val'
+            df = pd.read_csv(train_filepath)
+            full_labels = df.iloc[:, 0].values
+            full_features = df.iloc[:, 1:].values.astype(np.float32)
+
+            # Split the full training data into a smaller training set and a validation set
+            train_features, val_features, train_labels, val_labels = train_test_split(
+                full_features, full_labels, test_size=val_size, random_state=random_state
+            )
+
+            if split == 'train':
+                features, labels = train_features, train_labels
+            else:  # 'val'
+                features, labels = val_features, val_labels
+
+        # Normalization: Scale pixel values to [0, 1]
+        features /= 255.0
+
+        # Convert to PyTorch tensors
+        self.X = torch.from_numpy(features)
+        self.y = torch.from_numpy(labels).long()
+
+    def __len__(self) -> int:
+        """Returns the total number of samples in the dataset."""
+        return len(self.y)
+
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """ Returns one data sample (feature vector and corresponding label) at the given index. """
+        return self.X[idx], self.y[idx]
+
+
 class ForestFiresDataset(Dataset):
     """
     Handles loading, splitting, and preparation of the Forest Fires dataset.
