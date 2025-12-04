@@ -39,7 +39,8 @@ def visualize_reconstructions(model, test_loader, num_samples=10, save_dir='data
         axes[0, i].axis('off')
         if i == 0:
             axes[0, i].set_ylabel('Original', fontsize=12)
-        axes[0, i].set_title(f'Label: {y_batch[i].item()}')
+        label_name = FashionMNISTDataset.get_label_name(y_batch[i].item())
+        axes[0, i].set_title(f'{label_name}')
 
         # Reconstructed
         axes[1, i].imshow(X_reconstructed[i].reshape(28, 28), cmap='gray')
@@ -124,7 +125,8 @@ def visualize_bottleneck_representations(model, test_loader, save_dir='data/proc
         axes[0, i].axis('off')
         if i == 0:
             axes[0, i].set_ylabel('Original', fontsize=12)
-        axes[0, i].set_title(f'Label: {y_batch[i].item()}')
+        label_name = FashionMNISTDataset.get_label_name(y_batch[i].item())
+        axes[0, i].set_title(f'{label_name}')
 
         # Bottleneck representation
         bottleneck_img = bottleneck[i].numpy()
@@ -183,7 +185,16 @@ def visualize_umap(model, test_loader, save_dir='data/processed/FashionMNIST/', 
     plt.figure(figsize=(12, 10))
     scatter = plt.scatter(embedding[:, 0], embedding[:, 1],
                           c=all_labels, cmap='tab10', s=5, alpha=0.6)
-    plt.colorbar(scatter, label='Class Label')
+
+    # Create custom legend with class names
+    handles = []
+    for label_idx in range(10):
+        label_name = FashionMNISTDataset.get_label_name(label_idx)
+        handles.append(plt.Line2D([0], [0], marker='o', color='w',
+                                  markerfacecolor=plt.cm.tab10(label_idx/9),
+                                  markersize=8, label=label_name))
+    plt.legend(handles=handles, title='Classes', loc='best')
+
     plt.title('UMAP Projection of Encoded Representations')
     plt.xlabel('UMAP 1')
     plt.ylabel('UMAP 2')
@@ -204,15 +215,18 @@ def main(args):
     print("=== Part 1: Autoencoder Exploration ===\n")
 
     # Load test data
-    DATA_DIR = 'data/raw/MNIST/'
-    train_filepath = DATA_DIR + 'fashion_mnist_train.csv'
-    test_filepath = DATA_DIR + 'fashion_mnist_test.csv'
+    FASHION_DIR = 'data/raw/FashionMNIST/'
+    MNIST_DIR = 'data/raw/MNIST/'
 
-    # Check if files exist
+    # Try Fashion MNIST first (with hyphens)
+    train_filepath = FASHION_DIR + 'fashion-mnist_train.csv'
+    test_filepath = FASHION_DIR + 'fashion-mnist_test.csv'
+
+    # Check if files exist, fallback to regular MNIST if not
     if not os.path.exists(train_filepath):
         print("Warning: Fashion MNIST not found, using regular MNIST")
-        train_filepath = DATA_DIR + 'mnist_train.csv'
-        test_filepath = DATA_DIR + 'mnist_test.csv'
+        train_filepath = MNIST_DIR + 'mnist_train.csv'
+        test_filepath = MNIST_DIR + 'mnist_test.csv'
 
     test_dataset = FashionMNISTDataset(
         train_filepath, test_filepath, split='test')
@@ -230,16 +244,21 @@ def main(args):
         # Parse the model path to extract the directory structure
         # Expected format: models/reg_type/lr_value/e_value/model_name.pth
         model_dir = os.path.dirname(args.model_path)
+        # Normalize path to use consistent separators
+        model_dir = os.path.normpath(model_dir)
         if 'models' in model_dir:
             # Extract everything after 'models/'
             path_parts = model_dir.split(os.sep)
-            models_idx = path_parts.index('models')
-            if len(path_parts) > models_idx + 1:
-                # Reconstruct path: data/processed/FashionMNIST/reg_type/lr/e/
-                relative_path = os.path.join(*path_parts[models_idx + 1:])
-                save_dir = os.path.join(
-                    'data/processed/FashionMNIST/', relative_path, '')
-                print(f"Auto-detected save directory: {save_dir}")
+            if 'models' in path_parts:
+                models_idx = path_parts.index('models')
+                if len(path_parts) > models_idx + 1:
+                    # Reconstruct path: data/processed/FashionMNIST/reg_type/lr/e/
+                    relative_path = os.path.join(*path_parts[models_idx + 1:])
+                    save_dir = os.path.join(
+                        'data/processed/FashionMNIST/', relative_path, '')
+                    print(f"Auto-detected save directory: {save_dir}")
+                else:
+                    save_dir = args.save_dir
             else:
                 save_dir = args.save_dir
         else:

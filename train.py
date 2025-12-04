@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import DataLoader
-from dataset import MNISTDataset, AffNISTDataset, ForestFiresDataset
+from dataset import MNISTDataset, AffNISTDataset, ForestFiresDataset, FashionMNISTDataset
 from models import MyFFNetworkForClassification, MyFFNetworkForRegression
 import matplotlib.pyplot as plt
 from sklearn.metrics import classification_report, accuracy_score, mean_squared_error, r2_score
@@ -27,6 +27,19 @@ def main(args):
         val_dataset = MNISTDataset(train_filepath, test_filepath,
                                    split='val', val_size=args.vs, random_state=42)
         test_dataset = MNISTDataset(
+            train_filepath, test_filepath, split='test')
+        output_dim = 10
+    elif args.ds == 'fashionmnist':
+        print("--- Using Fashion MNIST Dataset ---")
+        DATA_DIR = 'data/raw/FashionMNIST/'
+        DATA_SAVE = 'data/processed/FashionMNIST/'
+        train_filepath = DATA_DIR + 'fashion-mnist_train.csv'
+        test_filepath = DATA_DIR + 'fashion-mnist_test.csv'
+        train_dataset = FashionMNISTDataset(train_filepath, test_filepath,
+                                            split='train', val_size=args.vs, random_state=42)
+        val_dataset = FashionMNISTDataset(train_filepath, test_filepath,
+                                          split='val', val_size=args.vs, random_state=42)
+        test_dataset = FashionMNISTDataset(
             train_filepath, test_filepath, split='test')
         output_dim = 10
     elif args.ds == 'affnist':
@@ -56,7 +69,7 @@ def main(args):
         output_dim = 1
     else:
         raise ValueError(
-            "Invalid dataset specified. Choose 'mnist', 'affnist', or 'forestfires'.")
+            "Invalid dataset specified. Choose 'mnist', 'fashionmnist', 'affnist', or 'forestfires'.")
 
     # 3. Create DataLoaders
     train_loader = DataLoader(
@@ -237,7 +250,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Train a Feed-Forward Neural Network.')
-    parser.add_argument('--ds', type=str, default='mnist', choices=['mnist', 'affnist', 'forestfires'],
+    parser.add_argument('--ds', type=str, default='mnist', choices=['mnist', 'fashionmnist', 'affnist', 'forestfires'],
                         help='The dataset to train on.')
     parser.add_argument('--lr', type=float, default=0.01,
                         help='Learning rate.')

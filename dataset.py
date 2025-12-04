@@ -53,6 +53,9 @@ class MNISTDataset(Dataset):
     The test set is kept separate, and the training data is split into train/validation.
     """
 
+    # Label names for MNIST (digits 0-9)
+    LABEL_NAMES = {i: str(i) for i in range(10)}
+
     def __init__(self, train_filepath: str, test_filepath: str, split: str = 'train', val_size: float = 0.2, random_state: int = 42):
         """
         Args:
@@ -97,6 +100,11 @@ class MNISTDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """ Returns one data sample (feature vector and corresponding label) at the given index. """
         return self.X[idx], self.y[idx]
+
+    @staticmethod
+    def get_label_name(label: int) -> str:
+        """Convert numeric label to human-readable name."""
+        return MNISTDataset.LABEL_NAMES.get(label, f'Unknown-{label}')
 
 
 class AffNISTDataset(Dataset):
@@ -165,6 +173,20 @@ class FashionMNISTDataset(Dataset):
     Uses the same structure as MNIST dataset.
     """
 
+    # Label names for Fashion MNIST
+    LABEL_NAMES = {
+        0: 'T-shirt/top',
+        1: 'Trouser',
+        2: 'Pullover',
+        3: 'Dress',
+        4: 'Coat',
+        5: 'Sandal',
+        6: 'Shirt',
+        7: 'Sneaker',
+        8: 'Bag',
+        9: 'Ankle boot'
+    }
+
     def __init__(self, train_filepath: str, test_filepath: str, split: str = 'train',
                  val_size: float = 0.2, random_state: int = 42):
         """
@@ -210,6 +232,11 @@ class FashionMNISTDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """ Returns one data sample (feature vector and corresponding label) at the given index. """
         return self.X[idx], self.y[idx]
+
+    @staticmethod
+    def get_label_name(label: int) -> str:
+        """Convert numeric label to human-readable name."""
+        return FashionMNISTDataset.LABEL_NAMES.get(label, f'Unknown-{label}')
 
 
 class ForestFiresDataset(Dataset):
